@@ -52,9 +52,10 @@ mcp = FastMCP("pyATS Network Automation Server")
 
 # -----------------------------------------------------------------------------
 # MCP Tools
+# Note: All tools have the optional parameter 'toolCallId' for usage with n8n
 # -----------------------------------------------------------------------------
 @mcp.tool()
-async def pyats_list_devices() -> str:
+async def pyats_list_devices(toolCallId: str = None) -> str:
     """List all devices available in the testbed with their properties."""
     try:
         tb = _load_testbed()
@@ -73,7 +74,7 @@ async def pyats_list_devices() -> str:
 
 
 @mcp.tool()
-async def pyats_run_show_command(device_name: str, command: str) -> str:
+async def pyats_run_show_command(device_name: str, command: str, toolCallId: str = None) -> str:
     """
     Execute a show command on a device and return parsed output (or raw if parsing fails).
     DO NOT use this for 'show logging' or 'show running-config' - use dedicated tools.
@@ -88,7 +89,7 @@ async def pyats_run_show_command(device_name: str, command: str) -> str:
 
 
 @mcp.tool()
-async def pyats_configure_device(device_name: str, config_commands: Any) -> str:
+async def pyats_configure_device(device_name: str, config_commands: Any, toolCallId: str = None) -> str:
     """
     Apply configuration to a device.
 
@@ -118,7 +119,7 @@ async def pyats_configure_device(device_name: str, config_commands: Any) -> str:
 
 
 @mcp.tool()
-async def pyats_show_running_config(device_name: str) -> str:
+async def pyats_show_running_config(device_name: str, toolCallId: str = None) -> str:
     """Get the complete running configuration from a device (raw output)."""
     try:
         result = await execute_learn_config_async(device_name)
@@ -129,7 +130,7 @@ async def pyats_show_running_config(device_name: str) -> str:
 
 
 @mcp.tool()
-async def pyats_show_logging(device_name: str) -> str:
+async def pyats_show_logging(device_name: str, toolCallId: str = None) -> str:
     """Get device logs using 'show logging' (raw output)."""
     try:
         result = await execute_learn_logging_async(device_name)
@@ -140,7 +141,7 @@ async def pyats_show_logging(device_name: str) -> str:
 
 
 @mcp.tool()
-async def pyats_ping_from_network_device(device_name: str, command: str) -> str:
+async def pyats_ping_from_network_device(device_name: str, command: str, toolCallId: str = None) -> str:
     """
     Execute a ping command from a network device (e.g., 'ping 1.1.1.1' or 'ping 1.1.1.1 repeat 100').
     Returns structured JSON (success rate, rtt) if parsing succeeds, otherwise raw output.
@@ -155,7 +156,7 @@ async def pyats_ping_from_network_device(device_name: str, command: str) -> str:
 
 
 @mcp.tool()
-async def pyats_run_linux_command(device_name: str, command: str) -> str:
+async def pyats_run_linux_command(device_name: str, command: str, toolCallId: str = None) -> str:
     """Execute a Linux command on a device (for Linux-based network devices)."""
     try:
         result = await run_linux_command_async(device_name, command)
@@ -166,7 +167,7 @@ async def pyats_run_linux_command(device_name: str, command: str) -> str:
 
 
 @mcp.tool()
-async def pyats_run_dynamic_test(test_script_content: str) -> str:
+async def pyats_run_dynamic_test(test_script_content: str, toolCallId: str = None) -> str:
     """
     Execute a standalone pyATS AEtest script for programmatic validation.
     
