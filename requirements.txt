@@ -1,4 +1,0 @@
-pyats[full]
-mcp
-pydantic
-python-dotenv

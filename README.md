@@ -1,242 +1,188 @@
-# pyATS MCP Server
-[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/automateyournetwork/pyATS_MCP)](https://archestra.ai/mcp-catalog/automateyournetwork__pyats_mcp)
+<h1 align="center"><strong>pyATS</strong> MCP server<br />
 
-This project implements a Model Context Protocol (MCP) Server that wraps Cisco pyATS and Genie functionality. It enables structured, model-driven interaction with network devices over STDIO using the JSON-RPC 2.0 protocol.
+<div align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&labelColor=555555&logoColor=white" alt="Python"/>
+  <img src="https://img.shields.io/badge/pyATS-FFD700?style=flat&logo=cisco&labelColor=555555&logoColor=white" alt="pyATS"/>
+  <img src="https://img.shields.io/badge/Cisco-1BA0D7?style=flat&logo=cisco&labelColor=555555&logoColor=white" alt="Cisco"/>
+  <a href="https://gofastmcp.com/getting-started/welcome"><img src="https://img.shields.io/badge/FastMCP-A259E6?style=flat&labelColor=555555&logo=rocket&logoColor=white"/></a>
+</div></h1>
 
-🚨 This server does not use HTTP or SSE. All communication is done via STDIN/STDOUT (standard input/output), making it ideal for secure, embedded, containerized, or LangGraph-based tool integrations.
+<div align="center">
+MCP server based on <a href="https://github.com/modelcontextprotocol/fastmcp"><strong>FastMCP</strong></a> that exposes key functionalities of the <a href="https://developer.cisco.com/docs/pyats/introduction/#cisco-pyats-network-test--automation-solution"><strong>Cisco pyATS</strong></a> network automation framework as MCP tools.
+<br /><br />
+</div>
 
-🔧 What It Does
+> **⚠️ Disclaimer**: This MCP Server is not an official Cisco product. It was developed for learning and experimentation purposes.
 
-Connects to Cisco IOS/NX-OS devices defined in a pyATS testbed
+## 🧰 Exposed MCP Tools
 
-Supports safe execution of validated CLI commands (show, ping)
+| Tool Name | Parameters | Description | Use Case |
+|-----------|-----------|-------------|----------|
+| 🗂️ **`pyats_list_devices`** | None | Lists all devices available in the testbed with their properties (os, type, platform, connections) | Discovery - Get an overview of all available network devices in your testbed |
+| 📊 **`pyats_run_show_command`** | `device_name`: str<br>`command`: str | Executes a show command on a device and returns parsed output (or raw if parsing fails). Validates command safety (no pipes, redirects, or dangerous keywords) | General device interrogation - Run any show command and get structured data |
+| ⚙️ **`pyats_configure_device`** | `device_name`: str<br>`config_commands`: str or list | Applies configuration to a device. Accepts multiline string or list of commands. Automatically handles config mode entry/exit. Preserves indentation for submode commands | Configuration changes - Apply interface configs, routing protocols, features, etc. |
+| 📄 **`pyats_show_running_config`** | `device_name`: str | Retrieves the complete running configuration from a device (raw output) | Configuration backup or analysis - Get full device config |
+| 📋 **`pyats_show_logging`** | `device_name`: str | Gets device logs using 'show logging' command (raw output) | Troubleshooting - Review device system logs and messages |
+| 🏓 **`pyats_ping_from_network_device`** | `device_name`: str<br>`command`: str | Executes a ping command from a network device (e.g., 'ping 1.1.1.1' or 'ping 1.1.1.1 repeat 100'). Returns structured JSON with success rate and RTT if parsing succeeds | Connectivity testing - Verify reachability from the device's perspective |
+| 🐧 **`pyats_run_linux_command`** | `device_name`: str<br>`command`: str | Executes a Linux command on a device (for Linux-based network devices) | Advanced operations - Run shell commands on devices with Linux CLI |
+| 🧪 **`pyats_run_dynamic_test`** | `test_script_content`: str | Executes a standalone pyATS AEtest script for programmatic validation. Script must NOT connect to devices (all data must be embedded). Returns full job report with PASS/FAIL result | Automated validation - Run complex health checks, compliance tests, or multi-step validation workflows |
 
-Allows controlled configuration changes
+## 🧩 Requirements
 
-Returns structured (parsed) or raw output
+- Python 3.10+
+- [uv Python package manager](https://docs.astral.sh/uv/)
 
-Exposes a set of well-defined tools via tools/discover and tools/call
+## 🛠️ Installation
 
-Operates entirely via STDIO for minimal surface area and maximum portability
+Clone the repository in your deployment environment.
+```bash
+git clone https://github.com/ponchotitlan/pyATS_MCP
+```
+```bash
+cd pyATS_MCP
+```
 
-🚀 Usage
+## ⚙️ Setup
 
-1. Set your testbed path
+### `testbed.yaml` file
+The pyATS framework is based on a testbed file which contains your device inventory. Open the `testbed.yaml` file and provide the connectivity details of your devices of interest following the convention of this file.
+
+#### CML Always-On sandbox for testing
+
+For testing purposes, a ready-made yaml file is provided to you. These devices are part of the CML (Cisco Modelling Lab) Always-On sandbox provided for free by Cisco DevNet. </br>
+
+To make use of the devices given, you need to reserve and launch the **["Cisco Modelling Labs"](https://devnetsandbox.cisco.com/DevNet/catalog/cml-sandbox_cml) Always-On Sandbox**.</br>
+
+Once reserved and launched, follow the instructions in the e-mail received to connect to a VPN and have access to all the devices mentioned in the `testbed.yaml` file.
+
+> The environment where you deploy this MCP server must have that VPN access, otherwise the topology will be unreachable.
+
+### `.env` file
+
+Provide a `.env` file with the following information:
+
+```
+PYATS_TESTBED_PATH=location of your testbed.yaml file
+MCP_TRANSPORT=stdio/http/sse
+MCP_HOST=for http and sse. Default is 0.0.0.0 if not provided
+MCP_PORT=for http and sse. Default is 8000 if not provided
+```
+
+## ⚡️ Running the MCP server
+
+Run the following commands in your terminal:
 
 ```bash
-
-export PYATS_TESTBED_PATH=/absolute/path/to/testbed.yaml
-
+uv sync
 ```
-
-2. Run the server
-
-Continuous STDIO Mode (default)
 
 ```bash
-
-python3 pyats_mcp_server.py
-
+uv run pyats-mcp
 ```
 
-Launches a long-running process that reads JSON-RPC requests from stdin and writes responses to stdout.
-
-One-Shot Mode
-
-``` bash
-
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/discover"}' | python3 pyats_mcp_server.py --oneshot
-
-```
-Processes a single JSON-RPC request and exits.
-
-📦 Docker Support
-
-Build the container
+You should see the following screen. The URL will change depending on the kind of transport that you setup in your `.env` file (stdio, http, sse):
 
 ```bash
+2026-01-07 13:15:20,512 - PyatsFastMCPServer - INFO - 🤖 pyATS MCP Server starting!
+2026-01-07 13:15:20,512 - PyatsFastMCPServer - INFO - ✅ Starting MCP server with sse transport on 0.0.0.0:8000
 
-docker build -t pyats-mcp-server .
 
+                                                       ╭──────────────────────────────────────────────────────────────────────────────╮                                                        
+                                                       │                                                                              │                                                        
+                                                       │                         ▄▀▀ ▄▀█ █▀▀ ▀█▀ █▀▄▀█ █▀▀ █▀█                        │                                                        
+                                                       │                         █▀  █▀█ ▄▄█  █  █ ▀ █ █▄▄ █▀▀                        │                                                        
+                                                       │                                                                              │                                                        
+                                                       │                                FastMCP 2.13.1                                │                                                        
+                                                       │                                                                              │                                                        
+                                                       │                                                                              │                                                        
+                                                       │               🖥  Server name: pyATS Network Automation Server                │                                                        
+                                                       │                                                                              │                                                        
+                                                       │               📦 Transport:   SSE                                            │                                                        
+                                                       │               🔗 Server URL:  http://0.0.0.0:8000/sse                        │                                                        
+                                                       │                                                                              │                                                        
+                                                       │               📚 Docs:        https://gofastmcp.com                          │                                                        
+                                                       │               🚀 Hosting:     https://fastmcp.cloud                          │                                                        
+                                                       │                                                                              │                                                        
+                                                       ╰──────────────────────────────────────────────────────────────────────────────╯                                                        
+
+
+[01/07/26 13:15:20] INFO     Starting MCP server 'pyATS Network Automation Server' with transport 'sse' on http://0.0.0.0:8000/sse                                               server.py:2055
+INFO:     Started server process [2968]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
-Run the container (STDIO Mode)
+## ⚡️ Usage example: LibreChat app
+
+LibreChat is an open-source app for all your AI conversations, fully customizable and compatible with any AI provider and MCP server, including ours.</br>
+For this demo, we will use the [Docker version](https://www.librechat.ai/docs/local/docker) of this app for a local deployment.
+
+> You need to have Docker installed in your host environment to run this deployment.
+
+To get started, clone the repository in your environment and copy the default `.env` file provided:
+
 ```bash
-docker run -i --rm \
-  -e PYATS_TESTBED_PATH=/app/testbed.yaml \
-  -v /your/testbed/folder:/app \
-  pyats-mcp-server
+git clone https://github.com/danny-avila/LibreChat.git
 ```
 
-🧠 Available MCP Tools
-
-Tool	Description
-
-run_show_command	Executes show commands safely with optional parsing
-
-run_ping_command	Executes ping tests and returns parsed or raw results
-
-apply_configuration	Applies safe configuration commands (multi-line supported)
-
-learn_config	Fetches running config (show run brief)
-
-learn_logging	Fetches system logs (show logging last 250)
-
-All inputs are validated using Pydantic schemas for safety and consistency.
-
-🤖 LangGraph Integration
-
-Add the MCP server as a tool node in your LangGraph pipeline like so:
-
-```python
-
-("pyats-mcp", ["python3", "pyats_mcp_server.py", "--oneshot"], "tools/discover", "tools/call")
-
+```bash
+cd LibreChat
 ```
 
-Name: pyats-mcp
-
-Command: python3 pyats_mcp_server.py --oneshot
-
-Discover Method: tools/discover
-
-Call Method: tools/call
-
-STDIO-based communication ensures tight integration with LangGraph’s tool invocation model without opening HTTP ports or exposing REST endpoints.
-
-📜 Example Requests
-
-Discover Tools
-
-```json
-
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/discover"
-}
-
+```bash
+cp .env.example .env
 ```
 
-Run Show Command
+Now, copy the files `librechat.yaml` and `docker-compose.override.yml` located in the folder `librechat_setup` of this repository into the root directory of the LibreChat repository. This will allow us to onboard our local MCP server once the LibreChat app is started.
 
-``` json
+Finally, spin all the containers using the following command:
 
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "tools/call",
-  "params": {
-    "name": "run_show_command",
-    "arguments": {
-      "device_name": "router1",
-      "command": "show ip interface brief"
-    }
-  }
-}
-``` 
-🔒 Security Features
-
-Input validation using Pydantic
-
-Blocks unsafe commands like erase, reload, write
-
-Prevents pipe/redirect abuse (e.g., | include, >, copy, etc.)
-
-Gracefully handles parsing fallbacks and errors
-
-📁 Project Structure
-
-```graphql
-
-.
-├── pyats_mcp_server.py     # MCP server with JSON-RPC and pyATS integration
-├── Dockerfile              # Docker container definition
-├── testbed.yaml            # pyATS testbed (user-provided)
-└── README.md               # This file
-
+```bash
+docker compose up -d
 ```
 
-📥 MCP Server Config Example (pyATS MCP via Docker)
+Once ready, login to the LibreChat app in your browser using the URL `http://localhost:3080/`. After creating an account, on the main page navigate to the left side and click the **+** button next to the banner that reads *Filter MCP servers by name*.
 
-To run the pyATS MCP Server as a container with STDIO integration, configure your mcpServers like this:
+Afterwards, execute your MCP server **in SSE transport mode** and fill all the information requested.
 
-``` json
-{
-  "mcpServers": {
-    "pyats": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-e",
-        "PYATS_TESTBED_PATH",
-        "-v",
-        "/absolute/path/to/testbed/folder:/app",
-        "pyats-mcp-server"
-      ],
-      "env": {
-        "PYATS_TESTBED_PATH": "/app/testbed.yaml"
-      }
-    }
-  }
-}
+> Very important! The URL of your MCP server shall be `http://host.docker.internal:8000/sse`, provided that LibreChat is on a container environment.
 
-```
+<div align="center">
+<img src="images/librechat_1.png"/>
+</div></br>
 
-```json
-{
-  "servers": { 
-    "pyats": {
-      "type": "stdio",
-      "command": "python3",
-      "args": [
-        "-u",
-        "/Users/johncapobianco/pyATS_MCP/pyats_mcp_server.py"
-      ],
-      "env": {
-        "PYATS_TESTBED_PATH": "/Users/johncapobianco/pyATS_MCP/testbed.yaml"
-      }
-  }
-}
-```
-🧾 Explanation:
-command: Uses Docker to launch the containerized pyATS MCP server
+Once the connection is successful, the MCP server will be available for your chats and requests!
 
-args:
+<div align="center">
+<img src="images/librechat_2.png"/>
+</div></br>
 
--i: Keeps STDIN open for communication
+To get started, you can check connectivity to all your devices in the testbed:
 
---rm: Automatically removes the container after execution
+<div align="center">
+<img src="images/librechat_3.png"/>
+</div></br>
+<div align="center">
+<img src="images/librechat_4.png"/>
+</div></br>
 
--e: Injects the environment variable PYATS_TESTBED_PATH
+An example of a use case is to ask your LLM to generate a detailed report highlighting any alerts or warnings:
 
--v: Mounts your local testbed directory into the container
+<div align="center">
+<img src="images/librechat_5.png"/>
+</div></br>
+<div align="center">
+<img src="images/librechat_6.png"/>
+</div></br>
+<div align="center">
+<img src="images/librechat_7.png"/>
+</div></br>
+<div align="center">
+<img src="images/librechat_8.png"/>
+</div></br>
+<div align="center">
+<img src="images/librechat_9.png"/>
+</div></br>
 
-pyats-mcp-server: Name of the Docker image
-
-env:
-
-Sets the path to the testbed file inside the container (/app/testbed.yaml)
-
-
-✍️ Author
-
-John Capobianco
-
-Product Marketing Evangelist, Selector AI
-
-Author, Automate Your Network
-
-Let me know if you’d like to add:
-
-A sample LangGraph graph config
-
-Companion client script
-
-CI/CD integration (e.g., GitHub Actions)
-
-Happy to help!
-
-# The testbed.yaml file works with the Cisco DevNet Cisco Modeling Labs (CML) Sandbox! 
+---
