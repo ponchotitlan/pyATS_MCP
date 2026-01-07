@@ -2,7 +2,7 @@
 
 <div align="center">
   <img src="https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&labelColor=555555&logoColor=white" alt="Python"/>
-  <img src="https://img.shields.io/badge/pyATS-FFD700?style=flat&logo=cisco&labelColor=555555&logoColor=white" alt="pyATS"/>
+  <a href="https://developer.cisco.com/docs/pyats/introduction/#cisco-pyats-network-test--automation-solution"><img src="https://img.shields.io/badge/pyATS-FFD700?style=flat&logo=cisco&labelColor=555555&logoColor=white" alt="pyATS"/></a>
   <img src="https://img.shields.io/badge/Cisco-1BA0D7?style=flat&logo=cisco&labelColor=555555&logoColor=white" alt="Cisco"/>
   <a href="https://gofastmcp.com/getting-started/welcome"><img src="https://img.shields.io/badge/FastMCP-A259E6?style=flat&labelColor=555555&logo=rocket&logoColor=white"/></a>
 </div></h1>
@@ -51,7 +51,7 @@ The pyATS framework is based on a testbed file which contains your device invent
 
 For testing purposes, a ready-made yaml file is provided to you. These devices are part of the CML (Cisco Modelling Lab) Always-On sandbox provided for free by Cisco DevNet. </br>
 
-To make use of the devices given, you need to reserve and launch the **["Cisco Modelling Labs"](https://devnetsandbox.cisco.com/DevNet/catalog/cml-sandbox_cml) Always-On Sandbox**.</br>
+To make use of the devices given, you need to reserve and launch the **[Cisco Modelling Labs](https://devnetsandbox.cisco.com/DevNet/catalog/cml-sandbox_cml) Always-On Sandbox**.</br>
 
 Once reserved and launched, follow the instructions in the e-mail received to connect to a VPN and have access to all the devices mentioned in the `testbed.yaml` file.
 
