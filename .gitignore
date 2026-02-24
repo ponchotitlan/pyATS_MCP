@@ -1,2 +1,3 @@
 .venv
 pyats_mcp/__pycache__/
+*.key

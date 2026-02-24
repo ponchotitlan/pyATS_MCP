@@ -24,6 +24,9 @@ import textwrap
 import asyncio
 import subprocess
 import shutil
+import ssl
+import urllib.request
+import urllib.parse
 from pathlib import Path
 from functools import partial
 from typing import Dict, Any, Optional, List, Union
@@ -67,6 +70,55 @@ _CONN_CACHE_TTL_S = int(os.getenv("PYATS_MCP_CONN_CACHE_TTL", "0"))
 _CONN_CACHE: Dict[str, Dict[str, Any]] = {}
 
 # -----------------------------------------------------------------------------
+# Credentials Vault Integration
+# These env vars are intentionally generic so the same mechanism can front
+# any HTTP-based vault or secret-manager (e.g. NetBox-Secrets, HashiCorp
+# Vault, CyberArk Conjur, …).
+# When PYATS_TESTBED_PATH is NOT set the server uses an external inventory
+# whose credentials are placeholders; the vault is then the authoritative
+# source of truth for username/password.
+# -----------------------------------------------------------------------------
+# API bearer token string for the vault (read directly from env / .env file).
+CREDENTIALS_VAULT_TOKEN = os.getenv("CREDENTIALS_VAULT_TOKEN")
+# Path to the RSA/EC private key used to obtain a decryption session key
+# (required by plugins such as netbox-secrets).
+CREDENTIALS_VAULT_PRIVATE_KEY_PATH = os.getenv("CREDENTIALS_VAULT_PRIVATE_KEY_PATH")
+# NetBox (or other vault) base URL — secrets are queried per device name.
+# Example: http://localhost:8000
+CREDENTIALS_VAULT_BASE_URL = (os.getenv("CREDENTIALS_VAULT_BASE_URL") or "").rstrip("/")
+# netbox-secrets role slug that holds the device username.
+CREDENTIALS_VAULT_USERNAME_ROLE = os.getenv("CREDENTIALS_VAULT_USERNAME_ROLE", "username")
+# netbox-secrets role slug that holds the device password.
+CREDENTIALS_VAULT_PASSWORD_ROLE = os.getenv("CREDENTIALS_VAULT_PASSWORD_ROLE", "password")
+# How long (seconds) to keep a fetched credential pair before re-querying
+# the vault. Defaults to the same TTL used for the testbed cache.
+CREDENTIALS_VAULT_CACHE_TTL_S = int(os.getenv("CREDENTIALS_VAULT_CACHE_TTL", str(_CACHE_TTL_S)))
+# Set to "0" to disable TLS certificate verification (not recommended in
+# production, but useful for self-signed certs in lab environments).
+CREDENTIALS_VAULT_VERIFY_SSL = os.getenv("CREDENTIALS_VAULT_VERIFY_SSL", "1") != "0"
+
+_VAULT_ENABLED: bool = all([
+    CREDENTIALS_VAULT_TOKEN,
+    CREDENTIALS_VAULT_PRIVATE_KEY_PATH,
+    CREDENTIALS_VAULT_BASE_URL,
+    CREDENTIALS_VAULT_USERNAME_ROLE,
+    CREDENTIALS_VAULT_PASSWORD_ROLE,
+])
+
+# In-memory cache for vault-retrieved credentials, keyed by device name
+_CREDS_CACHE: Dict[str, Dict[str, Any]] = {}
+
+if _VAULT_ENABLED:
+    logger.info("✅ Credentials vault integration enabled (all CREDENTIALS_VAULT_* vars set).")
+else:
+    logger.info(
+        "ℹ️  Credentials vault not configured. "
+        "Set CREDENTIALS_VAULT_TOKEN, CREDENTIALS_VAULT_PRIVATE_KEY_PATH, "
+        "CREDENTIALS_VAULT_BASE_URL, CREDENTIALS_VAULT_USERNAME_ROLE and "
+        "CREDENTIALS_VAULT_PASSWORD_ROLE to enable."
+    )
+
+# -----------------------------------------------------------------------------
 # Output Cleaning
 # -----------------------------------------------------------------------------
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -103,6 +155,165 @@ def _load_testbed():
         _TESTBED_CACHE["tb"] = loader.load(TESTBED_PATH)
         _TESTBED_CACHE["loaded_at"] = now
     return _TESTBED_CACHE["tb"]
+
+
+def _fetch_vault_credentials(device_name: str) -> Dict[str, str]:
+    """
+    Retrieve credentials for *device_name* from the configured HTTP vault.
+
+    Implements the netbox-secrets two-step flow:
+      1. POST the RSA private key to the session-key endpoint to obtain a
+         short-lived ``session_key``.
+      2. GET the secrets list endpoint filtered by device name and role slug
+         to obtain the plaintext values:
+
+         {CREDENTIALS_VAULT_BASE_URL}/api/plugins/secrets/secrets/
+             ?device={device_name}&role={role_slug}
+
+    Results are cached in ``_CREDS_CACHE[device_name]`` for
+    ``CREDENTIALS_VAULT_CACHE_TTL_S`` seconds.
+
+    Args:
+        device_name: Name of the device as it appears in NetBox.
+
+    Returns:
+        dict with ``username`` and ``password`` keys.
+
+    Raises:
+        RuntimeError: If vault env vars are not fully configured.
+        FileNotFoundError: If the private-key file is missing.
+        ValueError: If the vault API returns unexpected data.
+    """
+    global _CREDS_CACHE
+
+    if not _VAULT_ENABLED:
+        raise RuntimeError(
+            "Credentials vault is not configured. "
+            "Set CREDENTIALS_VAULT_TOKEN, CREDENTIALS_VAULT_PRIVATE_KEY_PATH, "
+            "CREDENTIALS_VAULT_BASE_URL, CREDENTIALS_VAULT_USERNAME_ROLE and "
+            "CREDENTIALS_VAULT_PASSWORD_ROLE."
+        )
+
+    # Return cached credentials if still fresh
+    now = time.time()
+    cached = _CREDS_CACHE.get(device_name)
+    if (
+        cached
+        and cached.get("username") is not None
+        and cached.get("password") is not None
+        and (now - cached["fetched_at"]) < CREDENTIALS_VAULT_CACHE_TTL_S
+    ):
+        logger.debug(f"Using cached vault credentials for '{device_name}' (TTL not expired).")
+        return {"username": cached["username"], "password": cached["password"]}
+
+    logger.info(f"Fetching credentials from vault for device '{device_name}'…")
+
+    # --- Get token (already a string from env / .env) ---
+    api_token = (CREDENTIALS_VAULT_TOKEN or "").strip()  # type: ignore[arg-type]
+    if not api_token:
+        raise ValueError("CREDENTIALS_VAULT_TOKEN is empty.")
+
+    # --- Read private key ---
+    key_path = Path(CREDENTIALS_VAULT_PRIVATE_KEY_PATH)  # type: ignore[arg-type]
+    if not key_path.exists():
+        raise FileNotFoundError(f"Vault private key file not found: {key_path}")
+    private_key = key_path.read_text()
+
+    # --- Build SSL context ---
+    ssl_ctx = ssl.create_default_context()
+    if not CREDENTIALS_VAULT_VERIFY_SSL:
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        logger.warning("⚠️  TLS certificate verification disabled for vault requests.")
+
+    def _vault_get(url: str, extra_headers: Dict[str, str]) -> Dict[str, Any]:
+        """Perform an authenticated GET against the vault and return decoded JSON."""
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Token {api_token}", **extra_headers},
+        )
+        try:
+            with urllib.request.urlopen(req, context=ssl_ctx) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode(errors="replace")
+            except Exception:
+                pass
+            raise ValueError(
+                f"Vault GET {url} returned {exc.code} {exc.reason}. Response body: {body}"
+            ) from exc
+
+    # --- Obtain a decryption session key (netbox-secrets style) ---
+    # POST {base}/api/plugins/secrets/session-keys/
+    session_key_url = f"{CREDENTIALS_VAULT_BASE_URL}/api/plugins/secrets/session-keys/"
+    session_payload = json.dumps({"private_key": private_key, "preserve_key": True}).encode()
+    session_req = urllib.request.Request(
+        session_key_url,
+        data=session_payload,
+        headers={
+            "Authorization": f"Token {api_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(session_req, context=ssl_ctx) as resp:
+        session_data = json.loads(resp.read().decode())
+
+    session_key: Optional[str] = session_data.get("session_key") or session_data.get("private_key")
+    if not session_key:
+        raise ValueError(
+            f"Vault did not return a session_key. Response keys: {list(session_data.keys())}"
+        )
+
+    auth_headers = {"X-Session-Key": session_key}
+
+    def _fetch_secret_by_role(role_slug: str) -> str:
+        """
+        Fetch all decrypted secrets from the vault and return the plaintext of
+        the first secret whose assigned device matches *device_name* and whose
+        role slug matches *role_slug*.
+
+        Filtering is done client-side (same approach as the reference script)
+        to avoid server-side query-param compatibility issues.
+        """
+        url = f"{CREDENTIALS_VAULT_BASE_URL}/api/plugins/secrets/secrets/?limit=1000"
+        data = _vault_get(url, auth_headers)
+        results = data.get("results", [])
+
+        for secret in results:
+            # Resolve the device name from the assigned object
+            assigned = secret.get("assigned_object") or {}
+            secret_device = assigned.get("name") or assigned.get("display") or ""
+
+            # Match on the secret's own name field (e.g. "username", "password")
+            secret_name = secret.get("name") or ""
+
+            if secret_device == device_name and secret_name == role_slug:
+                plaintext: Optional[str] = secret.get("plaintext")
+                if not plaintext:
+                    raise ValueError(
+                        f"Secret for device '{device_name}' / role '{role_slug}' has no "
+                        "'plaintext'. Ensure the session key is valid and the secret is "
+                        "not empty."
+                    )
+                return plaintext
+
+        raise ValueError(
+            f"No secret found for device '{device_name}' with role '{role_slug}' among "
+            f"{len(results)} secrets returned. Check the device name and role slug in NetBox."
+        )
+
+    # --- Fetch username and password secrets by device + role ---
+    username = _fetch_secret_by_role(CREDENTIALS_VAULT_USERNAME_ROLE)  # type: ignore[arg-type]
+    password = _fetch_secret_by_role(CREDENTIALS_VAULT_PASSWORD_ROLE)  # type: ignore[arg-type]
+
+    # --- Update per-device cache ---
+    _CREDS_CACHE[device_name] = {"fetched_at": time.time(), "username": username, "password": password}
+    logger.info(f"✅ Credentials for '{device_name}' fetched from vault and cached.")
+
+    return {"username": username, "password": password}
 
 
 def _disconnect_all_cached_connections() -> None:
@@ -308,6 +519,21 @@ def _get_device(device_name: str):
     device = tb.devices.get(device_name)
     if not device:
         raise ValueError(f"Device '{device_name}' not found in testbed '{TESTBED_PATH}'.")
+
+    # When using an external inventory the stored credentials are placeholders.
+    # If the vault integration is configured, retrieve the real credentials and
+    # inject them into the device object before attempting a connection.
+    if _USE_EXTERNAL_TESTBED and _VAULT_ENABLED:
+        vault_creds = _fetch_vault_credentials(device_name)
+        try:
+            device.credentials["default"].username = vault_creds["username"]
+            device.credentials["default"].password = vault_creds["password"]
+        except Exception:
+            # Fall back to direct attribute assignment (older pyATS versions)
+            device.credentials["default"] = {
+                "username": vault_creds["username"],
+                "password": vault_creds["password"],
+            }
 
     if _CONN_CACHE_TTL_S > 0:
         _evict_expired_connections()
