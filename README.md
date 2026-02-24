@@ -58,9 +58,9 @@ Once reserved and launched, follow the instructions in the e-mail received to co
 
 > The environment where you deploy this MCP server must have that VPN access, otherwise the topology will be unreachable.
 
-### `.env` file
+### `.env` file (local runs only)
 
-Provide a `.env` file with the following information:
+When running **locally with `uv`**, the server reads configuration from a `.env` file in the project root via `python-dotenv`. Create one with the variables you need:
 
 ```
 PYATS_TESTBED_PATH=location of your testbed.yaml file (optional if you always load inventory with pyats_load_external_inventory)
@@ -68,6 +68,8 @@ MCP_TRANSPORT=stdio/http/sse
 MCP_HOST=for http and sse. Default is 0.0.0.0 if not provided
 MCP_PORT=for http and sse. Default is 8000 if not provided
 ```
+
+> **Note:** this file is intentionally excluded from the Docker image (see `.dockerignore`) so credentials and local paths are never baked into a container. When running with Docker, configuration is passed through environment variables instead — see the [Docker section](#-running-with-docker) below.
 
 ## ⚡️ Running the MCP server
 
@@ -113,6 +115,103 @@ INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
+
+## 🐳 Running with Docker
+
+A multi-stage `Dockerfile` and a `docker-compose.yml` are included so you can run the server inside a container while keeping the ability to run it locally with `uv`.
+
+### TL;DR — what you actually need to edit
+
+> **You only need to touch `docker-compose.yml`.**  
+> The `Dockerfile` has everything baked in and works as-is. Do not edit it unless you are changing the image itself.
+
+The two things you will typically change in `docker-compose.yml` before the first run:
+
+| What | Where in `docker-compose.yml` | Example |
+|---|---|---|
+| **Transport** | `environment.MCP_TRANSPORT` | `sse`, `http`, or `stdio` |
+| **Port** | `ports` and `environment.MCP_PORT` | `"8000:8000"` (host:container) |
+
+Your `testbed.yaml` is already mounted automatically — no extra steps needed.
+
+---
+
+### Step 1 — Choose your transport and port
+
+Open `docker-compose.yml` and set the transport and port that match your setup:
+
+```yaml
+environment:
+  MCP_TRANSPORT: sse      # ← sse or http (use stdio only if no port is needed)
+  MCP_PORT: "8000"        # ← must match the right side of the ports mapping below
+
+ports:
+  - "8000:8000"           # ← host_port:container_port  (change host_port if 8000 is taken)
+```
+
+> If port 8000 is already in use on your machine, change only the **left** number (host port), e.g. `"8001:8000"`, and update `MCP_PORT` to match.
+
+### Step 2 — Build and start
+
+```bash
+docker compose up --build -d
+```
+
+### Step 3 — Connect your MCP client
+
+| Transport | URL |
+|---|---|
+| `sse` | `http://localhost:<port>/sse` |
+| `http` | `http://localhost:<port>/mcp` |
+
+> When reaching the container from **another container** (e.g. LibreChat), replace `localhost` with `host.docker.internal`.
+
+---
+
+### How configuration works (Dockerfile vs docker-compose)
+
+| | `Dockerfile` (`ENV`) | `docker-compose.yml` (`environment:`) |
+|---|---|---|
+| **Purpose** | Baked-in defaults for the image | Per-deployment overrides |
+| **When it applies** | Any time the image is run, regardless of how | Only when started via `docker compose` |
+| **Should you edit it?** | No — unless you are rebuilding the image for a different base config | **Yes** — this is where you configure your deployment |
+| **Takes precedence?** | Lower priority | Higher priority — overrides the Dockerfile |
+
+In short: `docker-compose.yml` always wins. The `Dockerfile` `ENV` values are just fallback defaults that kick in if a variable is not set anywhere else.
+
+---
+
+### Apple Silicon (M1/M2/M3) note
+
+The pyATS dependency `unicon` only ships `x86_64` wheels — no native ARM Linux build is available. If you are on an Apple Silicon Mac, add the following two lines to the `pyats-mcp` service in `docker-compose.yml` so Docker uses Rosetta 2 emulation:
+
+```yaml
+services:
+  pyats-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64      # ← add this
+    platform: linux/amd64  # ← and this
+```
+
+These lines are already present in the `docker-compose.yml` included in this repository. If you are on a native x86_64 Linux or Windows host you can safely remove them.
+
+---
+
+### Full list of available environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `sse` | Transport mode: `stdio`, `sse`, or `http` |
+| `MCP_HOST` | `0.0.0.0` | Bind address (only relevant for `sse`/`http`) |
+| `MCP_PORT` | `8000` | Listen port (only relevant for `sse`/`http`) |
+| `PYATS_TESTBED_PATH` | `/app/testbed.yaml` | Path to testbed file **inside** the container |
+| `PYATS_MCP_ARTIFACTS_DIR` | `/app/artifacts` | Where test artifacts are written |
+| `PYATS_MCP_KEEP_ARTIFACTS` | `1` | Set to `0` to discard artifacts after each run |
+
+---
 
 ## ⚡️ Usage example: LibreChat app
 

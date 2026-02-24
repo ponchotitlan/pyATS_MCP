@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / credentials – never bake these into the image
+.env
+*.env
+testbed.yaml          # mount at runtime instead
+
+# Editor / OS artefacts
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docs / assets that are not needed inside the image
+images/
+LICENSE
+AGENTS.md
+
+# CI / test artefacts
+.pytest_cache/
+htmlcov/
+.coverage

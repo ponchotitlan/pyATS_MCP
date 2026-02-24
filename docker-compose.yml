@@ -1,0 +1,37 @@
+services:
+  pyats-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    platform: linux/amd64
+    image: pyats-mcp:latest
+    container_name: pyats-mcp
+
+    # ── Transport ─────────────────────────────────────────────────────────────
+    # Use "sse" (default) or "http" for network-accessible transports.
+    # Switch back to "stdio" only when no port binding is needed.
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8002"
+      # Path INSIDE the container (matches the volume mount below)
+      PYATS_TESTBED_PATH: /app/testbed.yaml
+      PYATS_MCP_ARTIFACTS_DIR: /app/artifacts
+      PYATS_MCP_KEEP_ARTIFACTS: "1"
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    volumes:
+      # Mount your local testbed.yaml into the container (read-only)
+      - ./testbed.yaml:/app/testbed.yaml:ro
+      # Persist artifacts on the host so they survive container restarts
+      - pyats-mcp-artifacts:/app/artifacts
+
+    ports:
+      - "8002:8002"
+
+    restart: unless-stopped
+
+volumes:
+  pyats-mcp-artifacts:
