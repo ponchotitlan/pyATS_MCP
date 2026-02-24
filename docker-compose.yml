@@ -20,11 +20,22 @@ services:
       PYATS_TESTBED_PATH: /app/testbed.yaml
       PYATS_MCP_ARTIFACTS_DIR: /app/artifacts
       PYATS_MCP_KEEP_ARTIFACTS: "1"
+      # Vault integration – path INSIDE the container (matches the volume mount below)
+      CREDENTIALS_VAULT_PRIVATE_KEY_PATH: /app/secrets/private.key
+      # Required to enable vault – all 5 vars must be set or vault is skipped
+      CREDENTIALS_VAULT_TOKEN: "nbt_fanpDmNvr6wG.mZ5jOL6jeiMVPhM0LJU7Lt1yQyGjJTCpbJFfxgzQ"            # API bearer token for your vault
+      CREDENTIALS_VAULT_BASE_URL: "http://host.docker.internal:8000"         # e.g. http://netbox.example.com
+      CREDENTIALS_VAULT_USERNAME_ROLE: username   # role slug holding the username secret
+      CREDENTIALS_VAULT_PASSWORD_ROLE: password   # role slug holding the password secret
+      # Optional
+      CREDENTIALS_VAULT_VERIFY_SSL: "1"      # set to "0" for self-signed certs
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
       # Mount your local testbed.yaml into the container (read-only)
       - ./testbed.yaml:/app/testbed.yaml:ro
+      # Private key for vault credential lookups (read-only)
+      - ./private.key:/app/secrets/private.key:ro
       # Persist artifacts on the host so they survive container restarts
       - pyats-mcp-artifacts:/app/artifacts
 
