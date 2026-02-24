@@ -23,6 +23,7 @@ from fastmcp import FastMCP
 from .pyats_resources import (
     # Core functions
     _load_testbed,
+    set_external_testbed_inventory,
     reject_unsafe_script,
     _run_test_script,
     # Async operations
@@ -71,6 +72,82 @@ async def pyats_list_devices(toolCallId: str = None) -> str:
     except Exception as e:
         logger.error(f"Error in pyats_list_devices: {e}", exc_info=True)
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def pyats_load_external_inventory(inventory: Any, toolCallId: str = None) -> str:
+        """
+        Load an external device inventory and activate it as the current testbed.
+
+        Accepts either:
+        - a Python dictionary, or
+        - a JSON string that parses into that dictionary.
+
+        Required top-level structure:
+        {
+            "devices": {
+                "<device_name>": {
+                    "os": "<required if not in defaults>",
+                    "type": "<optional, default: router or defaults.type>",
+                    "platform": "<optional>",
+
+                    # credentials can be given either as nested object or direct fields
+                    "credentials": {
+                        "username": "<required if not provided by defaults>",
+                        "password": "<required if not provided by defaults>"
+                    },
+                    "username": "<optional alternative>",
+                    "password": "<optional alternative>",
+
+                    # connection can be given as a simple shape
+                    "ip": "<required if host/connection/connections does not provide it>",
+                    "host": "<optional alias for ip>",
+                    "connection": {
+                        "protocol": "<optional, default: ssh>",
+                        "port": "<optional>",
+                        "via": "<optional, default: cli>"
+                    },
+
+                    # OR as full pyATS-style mapping
+                    "connections": {
+                        "cli": {
+                            "protocol": "ssh|telnet|...",
+                            "ip": "x.x.x.x"
+                        }
+                    }
+                }
+            },
+            "defaults": {
+                "os": "<optional fallback>",
+                "type": "<optional fallback>",
+                "platform": "<optional fallback>",
+                "credentials": {
+                    "username": "<optional fallback>",
+                    "password": "<optional fallback>"
+                },
+                "connection": {
+                    "protocol": "<optional fallback>",
+                    "port": "<optional fallback>",
+                    "via": "<optional fallback>"
+                }
+            }
+        }
+
+        Per device, the required fields are:
+        - os (or defaults.os)
+        - username/password (direct or credentials, or defaults.credentials)
+        - ip/host (direct, connection, or connections)
+        """
+        try:
+                payload = inventory
+                if isinstance(inventory, str):
+                        payload = json.loads(inventory)
+
+                result = set_external_testbed_inventory(payload)
+                return json.dumps(result, indent=2)
+        except Exception as e:
+                logger.error(f"Error in pyats_load_external_inventory: {e}", exc_info=True)
+                return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
 @mcp.tool()

@@ -18,6 +18,7 @@ MCP server based on <a href="https://github.com/modelcontextprotocol/fastmcp"><s
 
 | Tool Name | Parameters | Description | Use Case |
 |-----------|-----------|-------------|----------|
+| 🧱 **`pyats_load_external_inventory`** | `inventory`: dict or JSON string | Loads an external inventory payload, massages/normalizes each device into pyATS testbed format, and activates it as the current in-memory device inventory (overriding local YAML usage for subsequent operations) | Dynamic inventory onboarding - Provide devices at runtime from external systems/orchestrators without relying on local testbed files |
 | 🗂️ **`pyats_list_devices`** | None | Lists all devices available in the testbed with their properties (os, type, platform, connections) | Discovery - Get an overview of all available network devices in your testbed |
 | 📊 **`pyats_run_show_command`** | `device_name`: str<br>`command`: str | Executes a show command on a device and returns parsed output (or raw if parsing fails). Validates command safety (no pipes, redirects, or dangerous keywords) | General device interrogation - Run any show command and get structured data |
 | ⚙️ **`pyats_configure_device`** | `device_name`: str<br>`config_commands`: str or list | Applies configuration to a device. Accepts multiline string or list of commands. Automatically handles config mode entry/exit. Preserves indentation for submode commands | Configuration changes - Apply interface configs, routing protocols, features, etc. |
@@ -62,7 +63,7 @@ Once reserved and launched, follow the instructions in the e-mail received to co
 Provide a `.env` file with the following information:
 
 ```
-PYATS_TESTBED_PATH=location of your testbed.yaml file
+PYATS_TESTBED_PATH=location of your testbed.yaml file (optional if you always load inventory with pyats_load_external_inventory)
 MCP_TRANSPORT=stdio/http/sse
 MCP_HOST=for http and sse. Default is 0.0.0.0 if not provided
 MCP_PORT=for http and sse. Default is 8000 if not provided

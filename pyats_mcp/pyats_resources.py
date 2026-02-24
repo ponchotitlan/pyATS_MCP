@@ -44,10 +44,13 @@ load_dotenv()
 
 TESTBED_PATH = os.getenv("PYATS_TESTBED_PATH")
 if not TESTBED_PATH or not os.path.exists(TESTBED_PATH):
-    logger.critical(f"❌ CRITICAL: PYATS_TESTBED_PATH not set or file not found: {TESTBED_PATH}")
-    sys.exit(1)
-
-logger.info(f"✅ Using testbed file: {TESTBED_PATH}")
+    logger.warning(
+        "⚠️ PYATS_TESTBED_PATH not set or file not found. "
+        "Use external inventory tool before running device actions. "
+        f"Current value: {TESTBED_PATH}"
+    )
+else:
+    logger.info(f"✅ Using testbed file: {TESTBED_PATH}")
 
 # Artifact retention configuration
 ARTIFACTS_DIR = Path(os.getenv("PYATS_MCP_ARTIFACTS_DIR", str(Path.home() / ".pyats-mcp" / "artifacts"))).resolve()
@@ -57,6 +60,8 @@ ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 # Caching configuration
 _CACHE_TTL_S = int(os.getenv("PYATS_MCP_TESTBED_CACHE_TTL", "30"))
 _TESTBED_CACHE: Dict[str, Any] = {"loaded_at": 0.0, "tb": None}
+_EXTERNAL_TESTBED_DATA: Optional[Dict[str, Any]] = None
+_USE_EXTERNAL_TESTBED = False
 
 _CONN_CACHE_TTL_S = int(os.getenv("PYATS_MCP_CONN_CACHE_TTL", "0"))
 _CONN_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -78,11 +83,195 @@ def clean_output(output: str) -> str:
 # -----------------------------------------------------------------------------
 def _load_testbed():
     """Load testbed with TTL-based caching."""
+    global _TESTBED_CACHE
+
+    if _USE_EXTERNAL_TESTBED:
+        if _TESTBED_CACHE["tb"] is None and _EXTERNAL_TESTBED_DATA is not None:
+            _TESTBED_CACHE["tb"] = loader.load(_EXTERNAL_TESTBED_DATA)
+            _TESTBED_CACHE["loaded_at"] = time.time()
+        if _TESTBED_CACHE["tb"] is None:
+            raise ValueError("External testbed inventory is enabled but not loaded.")
+        return _TESTBED_CACHE["tb"]
+
+    if not TESTBED_PATH or not os.path.exists(TESTBED_PATH):
+        raise ValueError(
+            "No valid local testbed available. Set PYATS_TESTBED_PATH or load an external inventory first."
+        )
+
     now = time.time()
     if _TESTBED_CACHE["tb"] is None or (now - _TESTBED_CACHE["loaded_at"]) > _CACHE_TTL_S:
         _TESTBED_CACHE["tb"] = loader.load(TESTBED_PATH)
         _TESTBED_CACHE["loaded_at"] = now
     return _TESTBED_CACHE["tb"]
+
+
+def _disconnect_all_cached_connections() -> None:
+    """Disconnect all cached connections and clear connection cache."""
+    for entry in _CONN_CACHE.values():
+        dev = entry.get("device")
+        try:
+            if dev and getattr(dev, "is_connected", lambda: False)():
+                dev.disconnect()
+        except Exception:
+            pass
+    _CONN_CACHE.clear()
+
+
+def _extract_device_credentials(
+    device_payload: Dict[str, Any], defaults: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Extract credentials for a device from multiple accepted input shapes."""
+    default_creds = defaults.get("credentials", {}) if isinstance(defaults.get("credentials"), dict) else {}
+
+    username = (
+        device_payload.get("username")
+        or (device_payload.get("credentials") or {}).get("username")
+        or default_creds.get("username")
+    )
+    password = (
+        device_payload.get("password")
+        or (device_payload.get("credentials") or {}).get("password")
+        or default_creds.get("password")
+    )
+
+    if not username or not password:
+        raise ValueError("Missing credentials.username/password for device.")
+
+    return {"default": {"username": username, "password": password}}
+
+
+def _extract_device_connections(
+    device_payload: Dict[str, Any], defaults: Dict[str, Any]
+) -> Dict[str, Dict[str, Any]]:
+    """Extract pyATS-compatible connections payload for a device."""
+    if isinstance(device_payload.get("connections"), dict) and device_payload["connections"]:
+        output: Dict[str, Dict[str, Any]] = {}
+        for via, conn in device_payload["connections"].items():
+            if not isinstance(conn, dict):
+                raise ValueError(f"Connection '{via}' must be a dictionary.")
+            normalized_conn = dict(conn)
+            if "host" in normalized_conn and "ip" not in normalized_conn:
+                normalized_conn["ip"] = normalized_conn.pop("host")
+            if "ip" not in normalized_conn:
+                raise ValueError(f"Connection '{via}' is missing ip/host.")
+            if "protocol" not in normalized_conn:
+                default_protocol = ((defaults.get("connection") or {}).get("protocol") if isinstance(defaults.get("connection"), dict) else None) or "ssh"
+                normalized_conn["protocol"] = default_protocol
+            output[str(via)] = normalized_conn
+        return output
+
+    default_conn = defaults.get("connection", {}) if isinstance(defaults.get("connection"), dict) else {}
+    inline_conn = device_payload.get("connection", {}) if isinstance(device_payload.get("connection"), dict) else {}
+
+    via = inline_conn.get("via") or default_conn.get("via") or "cli"
+    protocol = inline_conn.get("protocol") or default_conn.get("protocol") or "ssh"
+    ip = (
+        device_payload.get("ip")
+        or device_payload.get("host")
+        or inline_conn.get("ip")
+        or inline_conn.get("host")
+    )
+
+    if not ip:
+        raise ValueError("Missing connection ip/host for device.")
+
+    conn_payload: Dict[str, Any] = {"protocol": protocol, "ip": ip}
+    port = inline_conn.get("port", default_conn.get("port"))
+    if port is not None:
+        conn_payload["port"] = port
+
+    return {str(via): conn_payload}
+
+
+def normalize_external_testbed_inventory(inventory: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize external inventory JSON into a pyATS testbed dictionary.
+
+    Accepted input format:
+    {
+      "defaults": {
+        "os": "iosxe",
+        "type": "router",
+        "platform": "cat9k",
+        "credentials": {"username": "cisco", "password": "cisco"},
+        "connection": {"protocol": "ssh", "port": 22, "via": "cli"}
+      },
+      "devices": {
+        "R1": {
+          "os": "iosxe",
+          "type": "router",
+          "platform": "cat9k",
+          "ip": "10.10.20.171",
+          "credentials": {"username": "cisco", "password": "cisco"},
+          "connection": {"protocol": "ssh", "port": 22, "via": "cli"}
+        }
+      }
+    }
+
+    Device entries can also provide full pyATS-style "connections" mapping,
+    and can use "host" as alias for "ip".
+    """
+    if not isinstance(inventory, dict):
+        raise ValueError("Inventory payload must be a dictionary.")
+
+    raw_devices = inventory.get("devices")
+    if not isinstance(raw_devices, dict) or not raw_devices:
+        raise ValueError("Inventory must include a non-empty 'devices' dictionary.")
+
+    defaults = inventory.get("defaults", {})
+    if defaults is None:
+        defaults = {}
+    if not isinstance(defaults, dict):
+        raise ValueError("'defaults' must be a dictionary when provided.")
+
+    normalized_devices: Dict[str, Any] = {}
+    for device_name, raw_device in raw_devices.items():
+        if not isinstance(raw_device, dict):
+            raise ValueError(f"Device '{device_name}' must be a dictionary.")
+
+        os_value = raw_device.get("os") or defaults.get("os")
+        type_value = raw_device.get("type") or defaults.get("type") or "router"
+        platform_value = raw_device.get("platform") or defaults.get("platform")
+
+        if not os_value:
+            raise ValueError(f"Device '{device_name}' is missing required field 'os'.")
+
+        normalized_device: Dict[str, Any] = {
+            "os": os_value,
+            "type": type_value,
+            "credentials": _extract_device_credentials(raw_device, defaults),
+            "connections": _extract_device_connections(raw_device, defaults),
+        }
+
+        if platform_value:
+            normalized_device["platform"] = platform_value
+
+        normalized_devices[str(device_name)] = normalized_device
+
+    return {"devices": normalized_devices}
+
+
+def set_external_testbed_inventory(inventory: Dict[str, Any]) -> Dict[str, Any]:
+    """Set and activate an external inventory as the active testbed."""
+    global _EXTERNAL_TESTBED_DATA, _USE_EXTERNAL_TESTBED
+
+    normalized = normalize_external_testbed_inventory(inventory)
+    loaded_tb = loader.load(normalized)
+
+    _disconnect_all_cached_connections()
+
+    _EXTERNAL_TESTBED_DATA = normalized
+    _USE_EXTERNAL_TESTBED = True
+    _TESTBED_CACHE["tb"] = loaded_tb
+    _TESTBED_CACHE["loaded_at"] = time.time()
+
+    return {
+        "status": "completed",
+        "message": "External inventory loaded and activated.",
+        "source": "external",
+        "device_count": len(normalized["devices"]),
+        "devices": sorted(normalized["devices"].keys()),
+    }
 
 
 def _evict_expired_connections() -> None:
