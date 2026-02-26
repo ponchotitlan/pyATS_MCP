@@ -3,9 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
-    platform: linux/amd64
     image: pyats-mcp:latest
     container_name: pyats-mcp
 

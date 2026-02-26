@@ -168,19 +168,6 @@ docker compose up --build -d
 
 ---
 
-### How configuration works (Dockerfile vs docker-compose)
-
-| | `Dockerfile` (`ENV`) | `docker-compose.yml` (`environment:`) |
-|---|---|---|
-| **Purpose** | Baked-in defaults for the image | Per-deployment overrides |
-| **When it applies** | Any time the image is run, regardless of how | Only when started via `docker compose` |
-| **Should you edit it?** | No — unless you are rebuilding the image for a different base config | **Yes** — this is where you configure your deployment |
-| **Takes precedence?** | Lower priority | Higher priority — overrides the Dockerfile |
-
-In short: `docker-compose.yml` always wins. The `Dockerfile` `ENV` values are just fallback defaults that kick in if a variable is not set anywhere else.
-
----
-
 ### Apple Silicon (M1/M2/M3) note
 
 The pyATS dependency `unicon` only ships `x86_64` wheels — no native ARM Linux build is available. If you are on an Apple Silicon Mac, add the following two lines to the `pyats-mcp` service in `docker-compose.yml` so Docker uses Rosetta 2 emulation:
