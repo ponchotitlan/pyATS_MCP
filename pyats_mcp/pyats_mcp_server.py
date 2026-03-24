@@ -153,7 +153,7 @@ async def pyats_load_external_inventory(inventory: Any, toolCallId: str = None) 
 @mcp.tool()
 async def pyats_run_show_command(device_name: str, command: str, toolCallId: str = None) -> str:
     """
-    Execute a show command on a device and return parsed output (or raw if parsing fails).
+    Execute a show command on a device and return raw output.
     DO NOT use this for 'show logging' or 'show running-config' - use dedicated tools.
     DO NOT include pipes or redirects in commands.
     """
@@ -221,7 +221,7 @@ async def pyats_show_logging(device_name: str, toolCallId: str = None) -> str:
 async def pyats_ping_from_network_device(device_name: str, command: str, toolCallId: str = None) -> str:
     """
     Execute a ping command from a network device (e.g., 'ping 1.1.1.1' or 'ping 1.1.1.1 repeat 100').
-    Returns structured JSON (success rate, rtt) if parsing succeeds, otherwise raw output.
+    Returns raw output.
     This is preferred over pyats_run_show_command for connectivity checks.
     """
     try:

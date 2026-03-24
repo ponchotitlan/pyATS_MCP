@@ -5,7 +5,7 @@ pyats_resources.py - Core PyATS helper functions and async operations
 This module contains all the underlying functionality for interacting with
 network devices through PyATS, including:
 - Device connection management with caching
-- Command execution and parsing
+- Command execution and output handling
 - Configuration application
 - Test script execution
 - Output cleaning and validation
@@ -33,7 +33,6 @@ from typing import Dict, Any, Optional, List, Union
 
 from dotenv import load_dotenv
 from pyats.topology import loader
-from genie.libs.parser.utils import get_parser
 
 # -----------------------------------------------------------------------------
 # Logging
@@ -691,14 +690,14 @@ def _normalize_config_lines(config_commands: Union[str, List[Any], None]) -> Lis
 # -----------------------------------------------------------------------------
 async def run_show_command_async(device_name: str, command: str) -> Dict[str, Any]:
     """
-    Execute a show command asynchronously with parsing attempt.
+    Execute a show command asynchronously and return raw output.
     
     Args:
         device_name: Name of device in testbed
         command: Show command to execute
         
     Returns:
-        Dictionary with status, parsed/raw output, and metadata
+        Dictionary with status and raw output
     """
     def _run():
         val_err = validate_show_command(command)
@@ -711,28 +710,11 @@ async def run_show_command_async(device_name: str, command: str) -> Dict[str, An
             raw = device.execute(command, timeout=60)
             cleaned = clean_output(raw)
 
-            parser_cls = get_parser(command, device)
-            if parser_cls:
-                try:
-                    parser_obj = parser_cls(device=device)
-                    parsed = parser_obj.parse(output=cleaned)
-                    return {
-                        "status": "completed",
-                        "device": device_name,
-                        "command": command,
-                        "parsed_output": parsed,
-                        "raw_output": cleaned,
-                        "parser_used": parser_cls.__name__,
-                    }
-                except Exception as e:
-                    logger.warning(f"Parser failed: {e}")
-
             return {
                 "status": "completed",
                 "device": device_name,
                 "command": command,
                 "raw_output": cleaned,
-                "parser_used": None,
             }
 
         except Exception as e:
@@ -864,7 +846,7 @@ async def run_ping_command_async(device_name: str, command: str) -> Dict[str, An
         command: Ping command to execute
         
     Returns:
-        Dictionary with status and ping results (parsed if possible)
+        Dictionary with status and raw ping output
     """
     def _ping():
         device = None
@@ -873,28 +855,11 @@ async def run_ping_command_async(device_name: str, command: str) -> Dict[str, An
             raw = device.execute(command, timeout=180)
             cleaned = clean_output(raw)
 
-            parser_cls = get_parser(command, device)
-            if parser_cls:
-                try:
-                    parser_obj = parser_cls(device=device)
-                    parsed = parser_obj.parse(output=cleaned)
-                    return {
-                        "status": "completed",
-                        "device": device_name,
-                        "command": command,
-                        "parsed_output": parsed,
-                        "raw_output": cleaned,
-                        "parser_used": parser_cls.__name__,
-                    }
-                except Exception as e:
-                    logger.warning(f"Ping parser failed: {e}")
-
             return {
                 "status": "completed",
                 "device": device_name,
                 "command": command,
                 "raw_output": cleaned,
-                "parser_used": None,
             }
 
         except Exception as e:
