@@ -9,24 +9,36 @@ services:
     # ── Transport ─────────────────────────────────────────────────────────────
     # Use "sse" (default) or "http" for network-accessible transports.
     # Switch back to "stdio" only when no port binding is needed.
+    # Variable values are loaded from the .env file in this directory.
     environment:
-      MCP_TRANSPORT: http
-      MCP_HOST: 0.0.0.0
-      MCP_PORT: "8002"
+      MCP_TRANSPORT: ${MCP_TRANSPORT}
+      MCP_HOST: ${MCP_HOST}
+      MCP_PORT: ${MCP_PORT}
       # Path INSIDE the container (matches the volume mount below)
       PYATS_TESTBED_PATH: /app/testbed.yaml
       PYATS_MCP_ARTIFACTS_DIR: /app/artifacts
       PYATS_MCP_KEEP_ARTIFACTS: "1"
+      # Vault integration – path INSIDE the container (matches the volume mount below)
+      CREDENTIALS_VAULT_PRIVATE_KEY_PATH: /app/secrets/private.key
+      # Required to enable vault – all 5 vars must be set or vault is skipped
+      CREDENTIALS_VAULT_TOKEN: ${CREDENTIALS_VAULT_TOKEN}              # API bearer token for your vault
+      CREDENTIALS_VAULT_BASE_URL: ${CREDENTIALS_VAULT_BASE_URL}   # e.g. http://netbox.example.com
+      CREDENTIALS_VAULT_USERNAME_ROLE: ${CREDENTIALS_VAULT_USERNAME_ROLE}   # role slug holding the username secret
+      CREDENTIALS_VAULT_PASSWORD_ROLE: ${CREDENTIALS_VAULT_PASSWORD_ROLE}   # role slug holding the password secret
+      # Optional
+      CREDENTIALS_VAULT_VERIFY_SSL: ${CREDENTIALS_VAULT_VERIFY_SSL:-1}    # set to "0" for self-signed certs
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
       # Mount your local testbed.yaml into the container (read-only)
       - ./testbed.yaml:/app/testbed.yaml:ro
+      # Private key for vault credential lookups (read-only)
+      - ./private.key:/app/secrets/private.key:ro
       # Persist artifacts on the host so they survive container restarts
       - pyats-mcp-artifacts:/app/artifacts
 
     ports:
-      - "8002:8002"
+      - "${MCP_PORT}:${MCP_PORT}"
 
     restart: unless-stopped
 

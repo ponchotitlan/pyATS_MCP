@@ -16,6 +16,7 @@ env/
 # Secrets / credentials – never bake these into the image
 .env
 *.env
+*.key
 testbed.yaml          # mount at runtime instead
 
 # Editor / OS artefacts

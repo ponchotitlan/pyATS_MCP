@@ -14,6 +14,21 @@ MCP server based on <a href="https://github.com/modelcontextprotocol/fastmcp"><s
 
 > **⚠️ Disclaimer**: This MCP Server is not an official Cisco product. It was developed for learning and experimentation purposes.
 
+## 🔌 NetBox Integration
+
+This branch adds support for **[NetBox](https://netbox.dev/)** as an external device inventory source, including secrets retrieval via the **[netbox-secrets](https://github.com/Onemind-Services-LLC/netbox-secrets)** plugin.
+
+When a NetBox instance is configured, the MCP server can:
+
+- **Sync device inventory** — query NetBox for all devices, their roles, platforms, and primary IP addresses, and load them directly into the pyATS testbed at runtime using `pyats_load_external_inventory`. This is a lazy loading, as credentials are not synced.
+- **Retrieve credentials securely** — fetch the `username` and `password` secrets stored per-device under the `Device Credentials` secret role via the `netbox-secrets` plugin, using RSA key-pair decryption. **This is done only when connecting to a specific device**.
+
+This eliminates the need to maintain a static `testbed.yaml` with hardcoded credentials. Devices and their credentials are pulled live from NetBox on demand.
+
+> For a full step-by-step guide on setting up NetBox with the `netbox-secrets` plugin, importing devices, assigning credentials, and configuring the RSA key pair required for secret decryption, see [netbox_secrets_setup.md](netbox_secrets_setup.md).
+
+---
+
 ## 🧰 Exposed MCP Tools
 
 | Tool Name | Parameters | Description | Use Case |
@@ -119,20 +134,6 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ## 🐳 Running with Docker
 
 A multi-stage `Dockerfile` and a `docker-compose.yml` are included so you can run the server inside a container while keeping the ability to run it locally with `uv`.
-
-### TL;DR — what you actually need to edit
-
-> **You only need to touch `docker-compose.yml`.**  
-> The `Dockerfile` has everything baked in and works as-is. Do not edit it unless you are changing the image itself.
-
-The two things you will typically change in `docker-compose.yml` before the first run:
-
-| What | Where in `docker-compose.yml` | Example |
-|---|---|---|
-| **Transport** | `environment.MCP_TRANSPORT` | `sse`, `http`, or `stdio` |
-| **Port** | `ports` and `environment.MCP_PORT` | `"8000:8000"` (host:container) |
-
-Your `testbed.yaml` is already mounted automatically — no extra steps needed.
 
 ---
 
