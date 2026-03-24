@@ -8,6 +8,7 @@ dependencies = [
     "fastmcp==2.13.1",
     "pyats",
     "genie",
+    "unicon",
     "python-dotenv",
     "pydantic-settings"
 ]
