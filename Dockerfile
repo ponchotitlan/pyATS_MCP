@@ -1,9 +1,8 @@
 # ── Stage 1: build wheel with uv ─────────────────────────────────────────────
-# Pinned to linux/amd64: pyATS dependency 'unicon' ships x86_64-only wheels.
-FROM --platform=linux/amd64 python:3.12-slim AS builder
+FROM python:3.12-slim AS builder
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
@@ -20,7 +19,7 @@ RUN uv sync --no-dev
 
 
 # ── Stage 2: lean runtime image ───────────────────────────────────────────────
-FROM --platform=linux/amd64 python:3.12-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
